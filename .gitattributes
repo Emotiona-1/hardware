@@ -1,0 +1,2 @@
+# 统一使用 LF 换行，避免 Windows / macOS / Linux 协作时的换行符噪音
+* text=auto eol=lf
