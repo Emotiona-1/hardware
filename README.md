@@ -6,6 +6,13 @@ K230 负责 AI 视觉识别，NS800RT7P65D 负责执行动作，ESP8266 负责�
 > 本仓库是**分布式硬件代码合集**，三个节点各自独立运行、通过串口与 MQTT 协作。
 > 每个子目录都有自己完整的 README。
 
+执行端（NS800RT7P65D）提供**两套实现**，功能与指令协议完全一致：
+
+| 版本 | 目录 | 说明 |
+| --- | --- | --- |
+| 裸机版 | [`NS800RT7P65D/`](NS800RT7P65D/README.md) | 厂商 StdDriver + 主循环轮询，最早的原型 |
+| **RT-Thread 版** | [`NS800RT7P65D-RTThread/`](NS800RT7P65D-RTThread/README.md) | 跑在 RT-Thread 官方 BSP 上，线程 + 消息队列 + 设备框架；**比赛指定主控版本** |
+
 ---
 
 ## 系统组成
@@ -34,7 +41,7 @@ K230 负责 AI 视觉识别，NS800RT7P65D 负责执行动作，ESP8266 负责�
 | 节点 | 目录 | 角色 | 与谁通信 |
 | --- | --- | --- | --- |
 | **K230 视觉节点** | [`K230/`](K230/README.md) | 摄像头采集 + AI 分类（花 / 果 / 病害），识别到病害时抓拍上传；接收 MQTT 指令转发给执行端 | MQTT、TCP、UART1→执行端、UART2→底盘 |
-| **NS800RT7P65D 执行端** | [`NS800RT7P65D/`](NS800RT7P65D/README.md) | 收到动作指令后驱动步进电机、总线舵机、直流电机、振动电机完成作业动作 | UART2 ← K230 |
+| **NS800RT7P65D 执行端** | [`NS800RT7P65D/`](NS800RT7P65D/README.md)（裸机）<br>[`NS800RT7P65D-RTThread/`](NS800RT7P65D-RTThread/README.md)（RT-Thread） | 收到动作指令后驱动步进电机、总线舵机、直流电机、振动电机完成作业动作 | UART2 ← K230 |
 | **ESP8266 环境节点** | [`ESP8266/`](ESP8266/README.md) | DHT11 采集温湿度并通过 MQTT 上报；订阅下行消息打印到串口 | MQTT |
 
 > 图中「运动/底盘控制器」只出现在 K230 的 UART2 发送目标里，**其代码不在本仓库中**。
@@ -53,10 +60,14 @@ K230 负责 AI 视觉识别，NS800RT7P65D 负责执行动作，ESP8266 负责�
 │   ├── lastk230.py           #   主程序
 │   ├── secrets.py.example    #   配置模板（复制为 secrets.py 后填写）
 │   └── umqtt/simple.py       #   第三方 MQTT 客户端库
-├── NS800RT7P65D/             # 执行端（裸机 C）
+├── NS800RT7P65D/             # 执行端（裸机 C，原型）
 │   ├── README.md
 │   ├── Hardware/             #   驱动层
 │   └── User/                 #   main.c 与中断向量
+├── NS800RT7P65D-RTThread/    # 执行端（RT-Thread 版，比赛指定主控版本）
+│   ├── README.md
+│   ├── applications/         #   覆盖到官方 BSP 的 applications/
+│   └── docs/                 #   移植对照表 / 接线与串口分配 / 验收演示脚本
 └── ESP8266/                  # 环境节点（Arduino）
     ├── README.md
     ├── ESP8266_DHT11_MQTT.ino
@@ -78,10 +89,23 @@ cp secrets.py.example secrets.py     # 然后填入 WiFi、TCP 服务器、MQTT 
 放到 `/sdcard/the_model/`（**模型文件不在本仓库**），然后在 K230 的 MicroPython REPL 里执行
 `lastk230.py`。详见 [K230/README.md](K230/README.md)。
 
-### 2. NS800RT7P65D 执行端
+### 2. NS800RT7P65D 执行端（裸机版）
 
 把 `Hardware/` 与 `User/` 加入厂商 SDK 工程后编译烧录。**本仓库不含 SDK 与工程文件，
 不能直接编译**，详见 [NS800RT7P65D/README.md](NS800RT7P65D/README.md)。
+
+### 2b. NS800RT7P65D 执行端（RT-Thread 版）
+
+```bash
+git clone https://gitee.com/rtthread/rt-thread.git
+cd rt-thread/bsp/novosns/ns800/ns800rt7p65-nssinepad
+rm -rf applications && cp -r <本仓库>/NS800RT7P65D-RTThread/applications ./
+scons --menuconfig      # 打开 UART2 / UART3 / EPWM1，ECAP 保持关闭
+pkgs --update && scons -j8
+```
+
+控制台与总线舵机都要占用 UART1 的冲突有两种解决方案，见
+[NS800RT7P65D-RTThread/docs/02-接线与串口分配.md](NS800RT7P65D-RTThread/docs/02-接线与串口分配.md)。
 
 ### 3. ESP8266 环境节点
 
@@ -134,6 +158,7 @@ cp secrets.h.example secrets.h       # 然后填入 WiFi、MQTT broker 与主题
 
 - ❌ K230 的 **AI 模型文件**（`/sdcard/the_model/` 下的 `deploy_config.json` 与权重）
 - ❌ NS800RT7P65D 的 **厂商 SDK、启动文件、链接脚本、IDE 工程**
+- ❌ RT-Thread 源码与 BSP（`NS800RT7P65D-RTThread/` 只提供应用层，需自行克隆主线 RT-Thread）
 - ❌ 任何编译产物、任何真实凭据（见上一节）
 - ❌ K230 通过 UART2 所控制的**底盘/运动控制器**代码
 
@@ -156,7 +181,7 @@ cp secrets.h.example secrets.h       # 然后填入 WiFi、MQTT broker 与主题
 
 以下内容在代码中无法确定，欢迎作者补充：
 
-1. NS800RT7P65D 的**厂商与 SDK 名称**、使用的 IDE 与烧录方式；
+1. ~~NS800RT7P65D 的厂商与 SDK 名称~~ —— 已确认是**纳芯微（Novosense / NSSine™）NS800RT7P65D**，双核 Cortex-M7，官方 RT-Thread BSP 为 `bsp/novosns/ns800`；仍待补充的是实际使用的 IDE 与烧录器；
 2. 总线舵机**型号**、直流电机**驱动芯片型号**；
 3. 坐标指令中 `Y` 的**物理单位**，以及 `one`/`two`/`three` 三种作业模式的**正式名称**；
 4. K230 的 UART2（9600）所连接的**底盘控制器**是哪个部件；
